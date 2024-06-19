@@ -15,6 +15,12 @@ st.write(
 company_data = pd.read_excel("tickers.xlsx")
 company_names = company_data["Name"].tolist()
 
+# Default company and ticker
+default_company = "Tesla"
+default_ticker = "TSLA"
+selected_company = default_company
+selected_ticker = default_ticker
+
 st.sidebar.header("Enter a Company Name")
 company_input = st.sidebar.text_input("Type to search for a company")
 
@@ -22,21 +28,25 @@ company_input = st.sidebar.text_input("Type to search for a company")
 if company_input:
     best_matches = process.extractBests(company_input, company_names, score_cutoff=70, limit=5)
     suggested_companies = [match[0] for match in best_matches]
+    selected_company = suggested_companies[0] if suggested_companies else default_company
+    selected_ticker = company_data.loc[company_data["Name"] == selected_company, "Ticker"].values[0]
 else:
     suggested_companies = []
 
-selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies)
+# Sidebar selection box for company name
+selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=suggested_companies.index(
+    selected_company) if selected_company in suggested_companies else 0)
 
-# Retrieve ticker symbol based on selected company
-if selected_company:
-    selected_ticker = company_data.loc[company_data["Name"] == selected_company, "Ticker"].values[0]
-else:
-    selected_ticker = ""
-
+# Years of historical data slider
 years = st.sidebar.slider("Select Number of years of Historical Data", min_value=1, max_value=10, value=5)
+
+# Sidebar options for 52 Week High graph
 st.sidebar.subheader(f"52 Week High Graph for {selected_company}")
 show_moving_average = st.sidebar.checkbox("50 Moving Average", value=True)
+
+# Years to predict slider
 years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
+
 
 def get_stock_data(ticker_symbol, year_list):
     try:
@@ -48,7 +58,8 @@ def get_stock_data(ticker_symbol, year_list):
                 df = yf.download(ticker_symbol, start=start, end=end, progress=False)  # Disable progress bar
                 data_frames.append(df)
             except Exception as e:
-                st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
+                st.error(
+                    f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
                 return pd.DataFrame()  # Return an empty DataFrame in case of error
 
         yearly_data = pd.concat(data_frames)
@@ -83,6 +94,7 @@ def get_stock_data(ticker_symbol, year_list):
     except KeyError as e:
         st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
 
+
 def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
     try:
         start_date = pd.to_datetime(f"{year}-01-01")
@@ -108,21 +120,24 @@ def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
     except KeyError as e:
         st.error(f"Error: {e}. There was an issue with retrieving data for the specified year.")
 
+
 def plot_stock_data(data, company_name, title, show_moving_average=True):
     fig = px.line(data, x=data.index, y='52 Week High', labels={'52 Week High': 'Stock Price'})
 
     if show_moving_average:
         window_50 = 50
         sma_50 = data['Year Close'].rolling(window=window_50, min_periods=1).mean()
-        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{window_50}-Day Moving Average', line=dict(dash='dash'))
+        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{window_50}-Day Moving Average',
+                        line=dict(dash='dash'))
 
     fig.update_layout(title=f"{title} for {company_name} Over Time",
-        xaxis_title="Year",
-        yaxis_title="Stock Price",
-        legend_title="Indicators",
-    )
+                      xaxis_title="Year",
+                      yaxis_title="Stock Price",
+                      legend_title="Indicators",
+                      )
 
     st.plotly_chart(fig)
+
 
 def predict_stock_prices(data, company_name, years_prediction):
     if not isinstance(data.index, pd.DatetimeIndex):
@@ -142,38 +157,45 @@ def predict_stock_prices(data, company_name, years_prediction):
 
     return future_data
 
+
 def main():
-    if selected_company:
+    global selected_company, selected_ticker
+
+    if selected_company == default_company:
+        st.subheader(f"Using default company: {default_company} ({default_ticker})")
+    else:
         st.subheader(f"Yearly Stock Data for {selected_company} ({selected_ticker})")
-        stock_data = get_stock_data(selected_ticker, [years])
-        if not stock_data.empty:
-            st.write(stock_data)
 
-            st.subheader(f"52 Week High {'with Moving Average' if show_moving_average else ''} for {selected_company}")
-            plot_stock_data(stock_data, selected_company, "Stock Data", show_moving_average)
+    stock_data = get_stock_data(selected_ticker, [years])
+    if not stock_data.empty:
+        st.write(stock_data)
 
-            mlr_data = stock_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']].copy()
-            mlr_data.dropna(inplace=True)
-            X = mlr_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']]
-            y = mlr_data['Year Close']
-            mlr_model = LinearRegression()
-            mlr_model.fit(X, y)
-            mean_price_change = mlr_data['Year Close'].pct_change().mean()
+        st.subheader(f"52 Week High {'with Moving Average' if show_moving_average else ''} for {selected_company}")
+        plot_stock_data(stock_data, selected_company, "Stock Data", show_moving_average)
 
-            future_stock_prices = predict_stock_prices(stock_data, selected_company, years_prediction)
+        mlr_data = stock_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']].copy()
+        mlr_data.dropna(inplace=True)
+        X = mlr_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']]
+        y = mlr_data['Year Close']
+        mlr_model = LinearRegression()
+        mlr_model.fit(X, y)
+        mean_price_change = mlr_data['Year Close'].pct_change().mean()
 
-            st.subheader(f"Predicted Year Close for the Next {years_prediction} Years")
-            fig_pred = px.line(future_stock_prices, x=future_stock_prices.index, y='Predicted Year Close',
-                            labels={'Predicted Year Close': 'Predicted Stock Price'})
+        future_stock_prices = predict_stock_prices(stock_data, selected_company, years_prediction)
 
-            fig_pred.update_layout(
-                title=f"Predicted Year Close Over Time for {selected_company} (ARIMA)",
-                xaxis_title="Year",
-                yaxis_title="Predicted Stock Price",
-                legend_title="Indicators",
-            )
+        st.subheader(f"Predicted Year Close for the Next {years_prediction} Years")
+        fig_pred = px.line(future_stock_prices, x=future_stock_prices.index, y='Predicted Year Close',
+                           labels={'Predicted Year Close': 'Predicted Stock Price'})
 
-            st.plotly_chart(fig_pred)
+        fig_pred.update_layout(
+            title=f"Predicted Year Close Over Time for {selected_company} (ARIMA)",
+            xaxis_title="Year",
+            yaxis_title="Predicted Stock Price",
+            legend_title="Indicators",
+        )
+
+        st.plotly_chart(fig_pred)
+
 
 if __name__ == "__main__":
     main()
