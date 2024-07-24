@@ -28,7 +28,7 @@ if company_input:
     best_matches = process.extractBests(company_input, company_names, score_cutoff=70, limit=5)
     suggested_companies = [match[0] for match in best_matches]
 else:
-    suggested_companies = []
+    suggested_companies = [default_company]
 
 # Sidebar selection box for company name
 selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0)
