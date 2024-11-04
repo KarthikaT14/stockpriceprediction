@@ -5,20 +5,13 @@ import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
 from fuzzywuzzy import process
-import logging
 
-# Configure logging
-logging.basicConfig(filename='app_errors.log',
-                    level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-
+# Set the title of the app
 st.title("Stock Price Analyzer")
-st.write(
-    "This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices."
-)
+st.write("This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices.")
 
 # Load the Excel sheet
-company_data = pd.read_excel("tickers.xlsx")
+company_data = pd.read_excel("tickers.xlsx")  # Ensure this file exists in your working directory
 company_names = company_data["Name"].tolist()
 
 # Default company and ticker
@@ -60,53 +53,29 @@ if selected_company:
                 start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
                 try:
                     df = yf.download(ticker_symbol, start=start, end=end, progress=False)
-                    # Log the fetched DataFrame
-                    logging.info(f"Fetched data for {ticker_symbol}: {df.head()}")
-                    if not df.empty and all(col in df.columns for col in ['Close', 'High', 'Low', 'Open']):
-                        data_frames.append(df)
-                    else:
-                        st.warning(f"Data for {ticker_symbol} is incomplete. Please check the symbol and date range.")
-                        logging.warning(f"Data for {ticker_symbol} is incomplete for the year range starting from {start} to {end}.")
+                    st.write(f"Data fetched for {ticker_symbol} from {start} to {end}:")
+                    st.write(df)  # Display the DataFrame in Streamlit
+
+                    if df.empty or not all(col in df.columns for col in ['Close', 'High', 'Low', 'Open']):
+                        st.warning(f"Data for {ticker_symbol} is incomplete or unavailable. Please check the symbol and date range.")
                         return pd.DataFrame()  # Return an empty DataFrame
+
+                    data_frames.append(df)
                 except Exception as e:
                     st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
-                    logging.error(f"Error downloading data for {ticker_symbol} from {start} to {end}: {e}")
                     return pd.DataFrame()
 
-            # Combine the data
-            yearly_data = pd.concat(data_frames)
-            yearly_data.index = pd.to_datetime(yearly_data.index)
-            yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
-            yearly_data.index = yearly_data.index.year.astype(str)
+            if data_frames:
+                yearly_data = pd.concat(data_frames)
+                yearly_data.index = pd.to_datetime(yearly_data.index)
+                yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
+                yearly_data.index = yearly_data.index.year.astype(str)
 
-            # Calculate P/E ratios and Market Cap
-            pe_ratios = []
-            market_caps = []
-            for year in yearly_data.index:
-                pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
-                pe_ratios.append(pe_ratio)
-                market_caps.append(market_cap)
-
-            yearly_data["P/E Ratio"] = pe_ratios
-            yearly_data["Market Capacity"] = market_caps
-
-            yearly_data.index.names = ["Year"]
-            yearly_data.rename(
-                columns={
-                    "High": "52 Week High",
-                    "Low": "52 Week Low",
-                    "Open": "Year Open",
-                    "Close": "Year Close",
-                },
-                inplace=True,
-            )
-
-            return yearly_data
-
+                return yearly_data
+            else:
+                return pd.DataFrame()  # If no data was appended
         except KeyError as e:
             st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
-            logging.error(f"KeyError: {e}. The symbol '{ticker_symbol}' was not found.")
-
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
@@ -132,14 +101,13 @@ if selected_company:
 
         except KeyError as e:
             st.error(f"Error: {e}. There was an issue with retrieving data for the specified year.")
-            logging.error(f"KeyError: {e}. Issue with retrieving data for year {year} for symbol '{ticker_symbol}'.")
 
     def plot_stock_data(data, company_name, title, show_moving_average=True):
-        fig = px.line(data, x=data.index, y='52 Week High', labels={'52 Week High': 'Stock Price'})
+        fig = px.line(data, x=data.index, y='High', labels={'High': 'Stock Price'})
 
         if show_moving_average:
             window_50 = 50
-            sma_50 = data['Year Close'].rolling(window=window_50, min_periods=1).mean()
+            sma_50 = data['Close'].rolling(window=window_50, min_periods=1).mean()
             fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{window_50}-Day Moving Average',
                             line=dict(dash='dash'))
 
@@ -155,7 +123,7 @@ if selected_company:
         if not isinstance(data.index, pd.DatetimeIndex):
             data.index = pd.to_datetime(data.index)
 
-        closing_prices = data['Year Close'].values
+        closing_prices = data['Close'].values
 
         model = ARIMA(closing_prices, order=(5, 1, 2))
         results = model.fit()
@@ -179,13 +147,15 @@ if selected_company:
             st.subheader(f"52 Week High {'with Moving Average' if show_moving_average else ''} for {selected_company}")
             plot_stock_data(stock_data, selected_company, "Stock Data", show_moving_average)
 
-            mlr_data = stock_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']].copy()
+            # Prepare data for regression
+            mlr_data = stock_data[['High', 'Close']].copy()
             mlr_data.dropna(inplace=True)
-            X = mlr_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']]
-            y = mlr_data['Year Close']
+            X = mlr_data[['High']]
+            y = mlr_data['Close']
             mlr_model = LinearRegression()
             mlr_model.fit(X, y)
 
+            # Predict future stock prices
             future_stock_prices = predict_stock_prices(stock_data, selected_company, years_prediction)
 
             st.subheader(f"Predicted Year Close for the Next {years_prediction} Years")
@@ -202,10 +172,6 @@ if selected_company:
             st.plotly_chart(fig_pred)
 
     if __name__ == "__main__":
-        try:
-            main()
-        except Exception as e:
-            st.error("An unexpected error occurred. Please check the logs.")
-            logging.error("Unexpected error: ", exc_info=True)
+        main()
 else:
     st.subheader("Please enter and select a company to display its stock data and predictions.")
