@@ -62,7 +62,7 @@ if selected_company:
 
             yearly_data = pd.concat(data_frames)
             yearly_data.index = pd.to_datetime(yearly_data.index)
-            yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
+            yearly_data = yearly_data.resample('YE').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
             yearly_data.index = yearly_data.index.year.astype(str)
 
             pe_ratios = []
