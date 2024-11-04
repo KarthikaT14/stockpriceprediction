@@ -30,7 +30,7 @@ else:
     suggested_companies = []
 
 # Sidebar selection box for company name
-selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0)
+selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0 if suggested_companies else None)
 
 if selected_company:
     selected_ticker = company_data.loc[company_data["Name"] == selected_company, "Ticker"].values[0]
@@ -46,42 +46,32 @@ if selected_company:
     years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
 
     def get_stock_data(ticker_symbol, year_list):
-        try:
+        data_frames = []
+        for year in year_list:
+            start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
             end = pd.to_datetime('today').strftime("%Y-%m-%d")
-            data_frames = []
-            for year in year_list:
-                start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
-                try:
-                    df = yf.download(ticker_symbol, start=start, end=end, progress=False)
-                    st.write(f"Data fetched for {ticker_symbol} from {start} to {end}:")
-                    st.write(df)  # Display the DataFrame in Streamlit
+            try:
+                df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+                st.write(f"Data fetched for {ticker_symbol} from {start} to {end}:")
+                st.write(df)  # Display the DataFrame in Streamlit
 
-                    # Check if DataFrame is empty or if the required columns are missing
-                    if df.empty:
-                        st.warning(f"No data found for {ticker_symbol} in the specified date range.")
-                        return pd.DataFrame()  # Return an empty DataFrame
-                    elif not all(col in df.columns for col in ['Close', 'High', 'Low', 'Open']):
-                        st.warning(f"Data for {ticker_symbol} does not contain required columns. Please check the symbol and date range.")
-                        return pd.DataFrame()  # Return an empty DataFrame
+                if df.empty:
+                    st.warning(f"No data found for {ticker_symbol} in the specified date range.")
+                    return pd.DataFrame()  # Return an empty DataFrame
 
-                    data_frames.append(df)
-                except Exception as e:
-                    st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
-                    return pd.DataFrame()
+                data_frames.append(df)
+            except Exception as e:
+                st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start}: {e}")
+                return pd.DataFrame()  # Return an empty DataFrame
 
-            if data_frames:
-                yearly_data = pd.concat(data_frames)
-                yearly_data.index = pd.to_datetime(yearly_data.index)
-                yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
-                yearly_data.index = yearly_data.index.year.astype(str)
-
-                return yearly_data
-            else:
-                return pd.DataFrame()  # If no data was appended
-        except KeyError as e:
-            st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
-            return pd.DataFrame()  # Return an empty DataFrame
-
+        if data_frames:
+            yearly_data = pd.concat(data_frames)
+            yearly_data.index = pd.to_datetime(yearly_data.index)
+            yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
+            yearly_data.index = yearly_data.index.year.astype(str)
+            return yearly_data
+        else:
+            return pd.DataFrame()  # If no data was appended
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
