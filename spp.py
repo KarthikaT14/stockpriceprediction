@@ -5,19 +5,21 @@ import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
 from fuzzywuzzy import process
+import logging
 
-# App title and description
+# Configure logging
+logging.basicConfig(filename='app_errors.log',
+                    level=logging.DEBUG,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
 st.title("Stock Price Analyzer")
 st.write(
     "This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices."
 )
 
-# Load the Excel sheet with company data
-try:
-    company_data = pd.read_excel("tickers.xlsx")
-    company_names = company_data["Name"].tolist()
-except FileNotFoundError:
-    st.error("The file 'tickers.xlsx' was not found. Please upload it or check the file path.")
+# Load the Excel sheet
+company_data = pd.read_excel("tickers.xlsx")
+company_names = company_data["Name"].tolist()
 
 # Default company and ticker
 default_company = "Tesla"
@@ -35,7 +37,7 @@ else:
     suggested_companies = []
 
 # Sidebar selection box for company name
-selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0 if suggested_companies else None)
+selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0)
 
 if selected_company:
     selected_ticker = company_data.loc[company_data["Name"] == selected_company, "Ticker"].values[0]
@@ -56,13 +58,14 @@ if selected_company:
             data_frames = []
             for year in year_list:
                 start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
-                df = yf.download(ticker_symbol, start=start, end=end, progress=False)
-
-                if df.empty or not set(['High', 'Low', 'Open', 'Close']).issubset(df.columns):
-                    st.error(f"Data for {ticker_symbol} is incomplete or unavailable. Please check the symbol and date range.")
+                try:
+                    df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+                    data_frames.append(df)
+                except Exception as e:
+                    st.error(
+                        f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
+                    logging.error(f"Error downloading data for {ticker_symbol} from {start} to {end}: {e}")
                     return pd.DataFrame()
-
-                data_frames.append(df)
 
             yearly_data = pd.concat(data_frames)
             yearly_data.index = pd.to_datetime(yearly_data.index)
@@ -92,9 +95,9 @@ if selected_company:
 
             return yearly_data
 
-        except Exception as e:
-            st.error(f"Error retrieving data for {ticker_symbol}: {e}")
-            return pd.DataFrame()
+        except KeyError as e:
+            st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
+            logging.error(f"KeyError: {e}. The symbol '{ticker_symbol}' was not found.")
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
@@ -120,7 +123,7 @@ if selected_company:
 
         except KeyError as e:
             st.error(f"Error: {e}. There was an issue with retrieving data for the specified year.")
-            return 'N/A', 'N/A'
+            logging.error(f"KeyError: {e}. Issue with retrieving data for year {year} for symbol '{ticker_symbol}'.")
 
     def plot_stock_data(data, company_name, title, show_moving_average=True):
         fig = px.line(data, x=data.index, y='52 Week High', labels={'52 Week High': 'Stock Price'})
@@ -134,7 +137,8 @@ if selected_company:
         fig.update_layout(title=f"{title} for {company_name} Over Time",
                           xaxis_title="Year",
                           yaxis_title="Stock Price",
-                          legend_title="Indicators")
+                          legend_title="Indicators",
+                          )
 
         st.plotly_chart(fig)
 
@@ -189,6 +193,10 @@ if selected_company:
             st.plotly_chart(fig_pred)
 
     if __name__ == "__main__":
-        main()
+        try:
+            main()
+        except Exception as e:
+            st.error("An unexpected error occurred. Please check the logs.")
+            logging.error("Unexpected error: ", exc_info=True)
 else:
     st.subheader("Please enter and select a company to display its stock data and predictions.")
