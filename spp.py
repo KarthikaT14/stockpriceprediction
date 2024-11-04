@@ -45,33 +45,38 @@ if selected_company:
     # Years to predict slider
     years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
 
-    def get_stock_data(ticker_symbol, year_list):
-        data_frames = []
-        for year in year_list:
-            start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
-            end = pd.to_datetime('today').strftime("%Y-%m-%d")
-            try:
-                df = yf.download(ticker_symbol, start=start, end=end, progress=False)
-                st.write(f"Data fetched for {ticker_symbol} from {start} to {end}:")
-                st.write(df)  # Display the DataFrame in Streamlit
+    def get_stock_data(ticker, years):
+        # Fetch historical stock data using yfinance
+        end_date = pd.Timestamp.now()
+        start_date = end_date - pd.DateOffset(years=years)
 
-                if df.empty:
-                    st.warning(f"No data found for {ticker_symbol} in the specified date range.")
-                    return pd.DataFrame()  # Return an empty DataFrame
+        # Use yfinance to fetch the data
+        stock_data = yf.download(ticker, start=start_date, end=end_date)
 
-                data_frames.append(df)
-            except Exception as e:
-                st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start}: {e}")
-                return pd.DataFrame()  # Return an empty DataFrame
+        # Check if the DataFrame is empty
+        if stock_data.empty:
+            print("No data fetched for the ticker:", ticker)
+            return pd.DataFrame()
 
-        if data_frames:
-            yearly_data = pd.concat(data_frames)
-            yearly_data.index = pd.to_datetime(yearly_data.index)
-            yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
+        # Print the DataFrame structure for debugging
+        print(stock_data.head())
+        print(stock_data.columns)
+
+        # Check if the necessary columns exist before aggregation
+        required_columns = ['Close', 'High', 'Low', 'Open']
+        if all(col in stock_data.columns for col in required_columns):
+            yearly_data = stock_data.resample('Y').agg({
+                "High": "max",
+                "Low": "min",
+                "Open": "first",
+                "Close": "last"
+            })
             yearly_data.index = yearly_data.index.year.astype(str)
             return yearly_data
         else:
-            return pd.DataFrame()  # If no data was appended
+            missing_cols = [col for col in required_columns if col not in stock_data.columns]
+            print("Required columns are missing:", missing_cols)
+            return pd.DataFrame()  # Return an empty DataFrame if columns are missing
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
