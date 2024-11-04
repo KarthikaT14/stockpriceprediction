@@ -47,9 +47,9 @@ if selected_company:
     years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
 
     def get_stock_data(ticker_symbol, year_list):
+        data_frames = []
         try:
             end = pd.to_datetime('today').strftime("%Y-%m-%d")
-            data_frames = []
             for year in year_list:
                 start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
                 try:
@@ -58,38 +58,42 @@ if selected_company:
                 except Exception as e:
                     st.error(
                         f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
-                    return pd.DataFrame()
+            
+            if data_frames:
+                yearly_data = pd.concat(data_frames)
+                yearly_data.index = pd.to_datetime(yearly_data.index)
+                yearly_data = yearly_data.resample('YE').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
+                yearly_data.index = yearly_data.index.year.astype(str)
 
-            yearly_data = pd.concat(data_frames)
-            yearly_data.index = pd.to_datetime(yearly_data.index)
-            yearly_data = yearly_data.resample('YE').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
-            yearly_data.index = yearly_data.index.year.astype(str)
+                pe_ratios = []
+                market_caps = []
+                for year in yearly_data.index:
+                    pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
+                    pe_ratios.append(pe_ratio)
+                    market_caps.append(market_cap)
 
-            pe_ratios = []
-            market_caps = []
-            for year in yearly_data.index:
-                pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
-                pe_ratios.append(pe_ratio)
-                market_caps.append(market_cap)
+                yearly_data["P/E Ratio"] = pe_ratios
+                yearly_data["Market Capacity"] = market_caps
 
-            yearly_data["P/E Ratio"] = pe_ratios
-            yearly_data["Market Capacity"] = market_caps
+                yearly_data.index.names = ["Year"]
+                yearly_data.rename(
+                    columns={
+                        "High": "52 Week High",
+                        "Low": "52 Week Low",
+                        "Open": "Year Open",
+                        "Close": "Year Close",
+                    },
+                    inplace=True,
+                )
 
-            yearly_data.index.names = ["Year"]
-            yearly_data.rename(
-                columns={
-                    "High": "52 Week High",
-                    "Low": "52 Week Low",
-                    "Open": "Year Open",
-                    "Close": "Year Close",
-                },
-                inplace=True,
-            )
-
-            return yearly_data
+                return yearly_data
+            else:
+                return pd.DataFrame()  # Return an empty DataFrame if no data was collected
 
         except KeyError as e:
             st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
+            return pd.DataFrame()  # Return an empty DataFrame on error
+
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
