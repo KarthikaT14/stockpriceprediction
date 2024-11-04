@@ -60,18 +60,26 @@ if selected_company:
                 start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
                 try:
                     df = yf.download(ticker_symbol, start=start, end=end, progress=False)
-                    data_frames.append(df)
+                    # Log the fetched DataFrame
+                    logging.info(f"Fetched data for {ticker_symbol}: {df.head()}")
+                    if not df.empty and all(col in df.columns for col in ['Close', 'High', 'Low', 'Open']):
+                        data_frames.append(df)
+                    else:
+                        st.warning(f"Data for {ticker_symbol} is incomplete. Please check the symbol and date range.")
+                        logging.warning(f"Data for {ticker_symbol} is incomplete for the year range starting from {start} to {end}.")
+                        return pd.DataFrame()  # Return an empty DataFrame
                 except Exception as e:
-                    st.error(
-                        f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
+                    st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
                     logging.error(f"Error downloading data for {ticker_symbol} from {start} to {end}: {e}")
                     return pd.DataFrame()
 
+            # Combine the data
             yearly_data = pd.concat(data_frames)
             yearly_data.index = pd.to_datetime(yearly_data.index)
             yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
             yearly_data.index = yearly_data.index.year.astype(str)
 
+            # Calculate P/E ratios and Market Cap
             pe_ratios = []
             market_caps = []
             for year in yearly_data.index:
@@ -98,6 +106,7 @@ if selected_company:
         except KeyError as e:
             st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
             logging.error(f"KeyError: {e}. The symbol '{ticker_symbol}' was not found.")
+
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
