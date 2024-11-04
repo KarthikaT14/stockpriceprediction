@@ -185,5 +185,5 @@ if selected_company:
 
     if __name__ == "__main__":
         main()
-else:
-    st.subheader("Please enter and select a company to display its stock data and predictions.")
+    else:
+        st.subheader("Please enter and select a company to display its stock data and predictions.")
