@@ -54,7 +54,7 @@ if selected_company:
             for year in year_list:
                 start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
                 try:
-                    df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+                    df = yf.Ticker(ticker_symbol, start=start, end=end, progress=False)
                     if not df.empty:
                         data_frames.append(df)
                 except Exception as e:
