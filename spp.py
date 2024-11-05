@@ -5,6 +5,7 @@ import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
 from fuzzywuzzy import process
+import Levenshtein
 
 st.title("Stock Price Analyzer")
 st.write(
