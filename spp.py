@@ -25,7 +25,7 @@ st.write(
 
 # Load the Excel sheet
 
-company_data = pd.read_excel("G:/Practice/Python/tickers.xlsx")
+company_data = pd.read_excel("tickers.xlsx")
 
 company_names = company_data["Name"].tolist()
 
