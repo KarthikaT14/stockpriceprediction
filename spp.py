@@ -13,6 +13,8 @@ from sklearn.linear_model import LinearRegression
 
 from fuzzywuzzy import process
 
+import fsspec as fs
+
 
 st.title("Stock Price Analyzer")
 
