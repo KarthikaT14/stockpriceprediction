@@ -7,3 +7,4 @@ pandas
 fuzzywuzzy
 openpyxl
 levenshtein
+fsspec
