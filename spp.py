@@ -5,7 +5,6 @@ import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
 from fuzzywuzzy import process
-import Levenshtein
 
 st.title("Stock Price Analyzer")
 st.write(
@@ -54,13 +53,11 @@ if selected_company:
             for year in year_list:
                 start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
                 try:
-                    df = yf.Ticker(ticker_symbol, start=start, end=end, progress=False)
-                    if not df.empty:
-                        data_frames.append(df)
+                    df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+                    data_frames.append(df)
                 except Exception as e:
                     st.error(
-                        f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}"
-                    )
+                        f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
             
             if data_frames:
                 yearly_data = pd.concat(data_frames)
@@ -96,6 +93,7 @@ if selected_company:
         except KeyError as e:
             st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
             return pd.DataFrame()  # Return an empty DataFrame on error
+
 
     def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         try:
