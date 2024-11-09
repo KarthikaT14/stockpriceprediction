@@ -27,7 +27,7 @@ st.write(
 
 # Load the Excel sheet
 
-company_data = pd.read_excel("https://github.com/KarthikaT14/stockpriceprediction/blob/main/tickers.xlsx")
+company_data = pd.read_excel("https://github.com/KarthikaT14/stockpriceprediction/raw/main/tickers.xlsx")
 
 company_names = company_data["Name"].tolist()
 
