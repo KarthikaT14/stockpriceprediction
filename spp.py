@@ -93,88 +93,58 @@ years_prediction = st.sidebar.slider("Select Number of years to predict", min_va
 
 
 
+
 def get_stock_data(ticker_symbol, year_list):
-
     try:
-
         end = pd.to_datetime('today').strftime("%Y-%m-%d")
-
         data_frames = []
 
         for year in year_list:
-
             start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
-
             try:
-
-                df = yf.download(ticker_symbol, start=start, end=end, progress=False)  # Disable progress bar
-
-                data_frames.append(df)
-
+                df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+                if not df.empty:
+                    data_frames.append(df)
             except Exception as e:
+                st.error(f"Error downloading data for {ticker_symbol} from {start} to {end}: {e}")
+                return pd.DataFrame()  # Return an empty DataFrame if an error occurs
 
-                st.error(
-
-                    f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
-
-                return pd.DataFrame()  # Return an empty DataFrame in case of error
-
+        if not data_frames:
+            st.error(f"No data found for {ticker_symbol}. Please check the ticker symbol.")
+            return pd.DataFrame()
 
         yearly_data = pd.concat(data_frames)
-
-
-        yearly_data.index = pd.to_datetime(yearly_data.index)  # Convert the index to datetime
-
-        yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
-
+        yearly_data.index = pd.to_datetime(yearly_data.index)  # Ensure datetime format
+        yearly_data = yearly_data.resample('Y').agg({
+            "High": "max", 
+            "Low": "min", 
+            "Open": "first", 
+            "Close": "last"
+        })
         yearly_data.index = yearly_data.index.year.astype(str)
 
-
-        pe_ratios = []
-
-        market_caps = []
-
+        pe_ratios, market_caps = [], []
         for year in yearly_data.index:
-
             pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
-
             pe_ratios.append(pe_ratio)
-
             market_caps.append(market_cap)
 
-
         yearly_data["P/E Ratio"] = pe_ratios
-
         yearly_data["Market Capacity"] = market_caps
-
-
         yearly_data.index.names = ["Year"]
 
-        yearly_data.rename(
-
-            columns={
-
-                "High": "52 Week High",
-
-                "Low": "52 Week Low",
-
-                "Open": "Year Open",
-
-                "Close": "Year Close",
-
-            },
-
-            inplace=True,
-
-        )
-
+        yearly_data.rename(columns={
+            "High": "52 Week High",
+            "Low": "52 Week Low",
+            "Open": "Year Open",
+            "Close": "Year Close",
+        }, inplace=True)
 
         return yearly_data
 
-
     except KeyError as e:
-
         st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
+
 
 
 
