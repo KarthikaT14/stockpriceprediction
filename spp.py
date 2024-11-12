@@ -1,4 +1,3 @@
-
 import streamlit as st
 
 import pandas as pd
@@ -7,27 +6,23 @@ import yfinance as yf
 
 import plotly.express as px
 
-from statsmodels.tsa.arima.model import ARIMA
-
-from sklearn.linear_model import LinearRegression
-
 from fuzzywuzzy import process
 
-import fsspec as fs
+import numpy as np
+
+from sklearn.preprocessing import MinMaxScaler
+
+from sklearn.svm import SVR
 
 
 st.title("Stock Price Analyzer")
 
-st.write(
-
-    "This tool is developed to analyze stock data, Generate Plots using Technical Indicators, and Predict Stock Prices"
-
-)
+st.write("This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices")
 
 
 # Load the Excel sheet
 
-company_data = pd.read_excel("https://github.com/KarthikaT14/stockpriceprediction/raw/main/tickers.xlsx")
+company_data = pd.read_excel("C:/Users/KARTHIKA/Downloads/tickers.xlsx")
 
 company_names = company_data["Name"].tolist()
 
@@ -86,66 +81,107 @@ st.sidebar.subheader(f"52 Week High Graph for {selected_company}")
 
 show_moving_average = st.sidebar.checkbox("50 Moving Average", value=True)
 
-
-# Years to predict slider
-
 years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
 
+
+# Comparison checkbox
+
+enable_comparison = st.sidebar.checkbox("Compare with Another Company")
+
+
+# Second company for comparison if checkbox is enabled
+
+if enable_comparison:
+
+    st.sidebar.header("Compare with Another Company")
+
+    compare_company_input = st.sidebar.text_input("Type to search for another company", value="Microsoft")
+
+    compare_best_matches = process.extractBests(compare_company_input, company_names, score_cutoff=70, limit=5)
+
+    compare_suggested_companies = [match[0] for match in compare_best_matches]
+
+    if compare_suggested_companies:
+
+        compare_company = compare_suggested_companies[0]
+
+        compare_ticker = company_data.loc[company_data["Name"] == compare_company, "Ticker"].values[0]
+
+    else:
+
+        compare_company = "Microsoft"
+
+        compare_ticker = "MSFT"
+
+
+# Years to predict slider
 
 
 
 def get_stock_data(ticker_symbol, year_list):
+
     try:
+
         end = pd.to_datetime('today').strftime("%Y-%m-%d")
+
         data_frames = []
 
         for year in year_list:
-            start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
-            try:
-                df = yf.download(ticker_symbol, start=start, end=end, progress=False)
-                if not df.empty:
-                    data_frames.append(df)
-            except Exception as e:
-                st.error(f"Error downloading data for {ticker_symbol} from {start} to {end}: {e}")
-                return pd.DataFrame()  # Return an empty DataFrame if an error occurs
 
-        if not data_frames:
-            st.error(f"No data found for {ticker_symbol}. Please check the ticker symbol.")
-            return pd.DataFrame()
+            start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
+
+            try:
+
+                df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+
+                data_frames.append(df)
+
+            except Exception as e:
+
+                st.error(f"Error downloading data for {ticker_symbol} for the year range starting from {start} to {end}: {e}")
+
+                return pd.DataFrame()
+
 
         yearly_data = pd.concat(data_frames)
-        yearly_data.index = pd.to_datetime(yearly_data.index)  # Ensure datetime format
-        yearly_data = yearly_data.resample('Y').agg({
-            "High": "max", 
-            "Low": "min", 
-            "Open": "first", 
-            "Close": "last"
-        })
+
+
+        yearly_data.index = pd.to_datetime(yearly_data.index)
+
+        yearly_data = yearly_data.resample('Y').agg({"High": "max", "Low": "min", "Open": "first", "Close": "last"})
+
         yearly_data.index = yearly_data.index.year.astype(str)
 
-        pe_ratios, market_caps = [], []
+
+        pe_ratios = []
+
+        market_caps = []
+
         for year in yearly_data.index:
+
             pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
+
             pe_ratios.append(pe_ratio)
+
             market_caps.append(market_cap)
 
+
         yearly_data["P/E Ratio"] = pe_ratios
+
         yearly_data["Market Capacity"] = market_caps
+
+
         yearly_data.index.names = ["Year"]
 
-        yearly_data.rename(columns={
-            "High": "52 Week High",
-            "Low": "52 Week Low",
-            "Open": "Year Open",
-            "Close": "Year Close",
-        }, inplace=True)
+        yearly_data.rename(columns={"High": "52 Week High", "Low": "52 Week Low", "Open": "Year Open", "Close": "Year Close"}, inplace=True)
+
 
         return yearly_data
 
+
     except KeyError as e:
+
         st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
-
-
 
 
 def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
@@ -193,11 +229,28 @@ def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
         st.error(f"Error: {e}. There was an issue with retrieving data for the specified year.")
 
 
+def plot_stock_data(data, compare_data, company_name, compare_company_name, title, show_moving_average=True, enable_comparison=False):
 
-def plot_stock_data(data, company_name, title, show_moving_average=True):
+    # Create the figure and add the main company's 52 Week High
 
-    fig = px.line(data, x=data.index, y='52 Week High', labels={'52 Week High': 'Stock Price'})
+    fig = px.line(data, x=data.index, y='52 Week High', labels={'52 Week High': 'Stock Price'},
 
+                  title=title if not enable_comparison else f"{company_name} vs {compare_company_name} - {title}")
+
+
+    # Plot main company's 52 Week High
+
+    fig.add_scatter(x=data.index, y=data['52 Week High'], mode='lines', name=f'{company_name} 52 Week High')
+
+
+    # Add comparison company's 52 Week High if comparison is enabled
+
+    if enable_comparison:
+
+        fig.add_scatter(x=compare_data.index, y=compare_data['52 Week High'], mode='lines', name=f'{compare_company_name} 52 Week High')
+
+
+    # Plot 50-day moving average for main company
 
     if show_moving_average:
 
@@ -205,23 +258,33 @@ def plot_stock_data(data, company_name, title, show_moving_average=True):
 
         sma_50 = data['Year Close'].rolling(window=window_50, min_periods=1).mean()
 
-        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{window_50}-Day Moving Average',
-
-                        line=dict(dash='dash'))
+        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{company_name} 50-Day Moving Avg', line=dict(dash='dash'))
 
 
-    fig.update_layout(title=f"{title} for {company_name} Over Time",
+        # Add 50-day moving average for comparison company if comparison is enabled
 
-                      xaxis_title="Year",
+        if enable_comparison:
 
-                      yaxis_title="Stock Price",
+            compare_sma_50 = compare_data['Year Close'].rolling(window=window_50, min_periods=1).mean()
 
-                      legend_title="Indicators",
+            fig.add_scatter(x=compare_data.index, y=compare_sma_50, mode='lines', name=f'{compare_company_name} 50-Day Moving Avg', line=dict(dash='dash'))
 
-                      )
+
+    # Update layout
+
+    fig.update_layout(
+
+        xaxis_title="Year",
+
+        yaxis_title="Stock Price",
+
+        legend_title="Indicators"
+
+    )
 
 
     st.plotly_chart(fig)
+
 
 
 
@@ -232,98 +295,192 @@ def predict_stock_prices(data, company_name, years_prediction):
         data.index = pd.to_datetime(data.index)
 
 
-    closing_prices = data['Year Close'].values
+    closing_prices = data['Year Close'].values.reshape(-1, 1)
 
 
-    model = ARIMA(closing_prices, order=(5, 1, 2))
+    # Scale the data
 
-    results = model.fit()
+    scaler = MinMaxScaler(feature_range=(0, 1))
 
-
-    current_year = pd.to_datetime('today').year
-
-    future_years = pd.date_range(start=f"{current_year + 1}-01-01", periods=years_prediction, freq='Y')
-
-    forecast = results.get_forecast(steps=len(future_years))
+    scaled_data = scaler.fit_transform(closing_prices)
 
 
-    future_data = pd.DataFrame(index=future_years, columns=['Predicted Year Close'])
+    # Prepare the data for SVR
 
-    future_data['Predicted Year Close'] = forecast.predicted_mean
+    time_step = min(60, len(scaled_data) // 2)
+
+    X_train, y_train = [], []
+
+    
+
+    for i in range(time_step, len(scaled_data)):
+
+        X_train.append(scaled_data[i - time_step:i, 0])
+
+        y_train.append(scaled_data[i, 0])
 
 
-    return future_data
+    X_train, y_train = np.array(X_train), np.array(y_train)
 
 
+    # Reshape data to fit SVR requirements
 
-def main():
-
-    global selected_company, selected_ticker
+    X_train = X_train.reshape(X_train.shape[0], time_step)
 
 
-    if selected_company == default_company:
+    # Initialize and train the SVR model
 
-        st.subheader(f"Using default company: {default_company} ({default_ticker})")
+    model = SVR(kernel='rbf', C=100, gamma=0.1, epsilon=0.1)
+
+    model.fit(X_train, y_train)
+
+
+    # Predict future prices
+
+    predictions = []
+
+    last_sequence = X_train[-1]  # Start with the last known sequence
+
+
+    for _ in range(years_prediction):
+
+        prediction = model.predict(last_sequence.reshape(1, -1))
+
+        predictions.append(prediction[0])
+
+        last_sequence = np.append(last_sequence[1:], prediction, axis=0)
+
+
+    # Transform the predictions back to original scale
+
+    if len(predictions) > 0:
+
+        future_data = pd.DataFrame(index=pd.date_range(start=f"{pd.to_datetime('today').year + 1}-01-01", periods=years_prediction, freq='Y'), columns=['Predicted Year Close'])
+
+        future_data['Predicted Year Close'] = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+
+        return future_data
 
     else:
 
-        st.subheader(f"Yearly Stock Data for {selected_company} ({selected_ticker})")
+        return pd.DataFrame() 
 
+    
+
+def plot_predicted_stock_prices(stock_data, compare_stock_data, predicted_data, compare_predicted_data, company_name, compare_company_name, years_prediction, enable_comparison=False):
+
+    # Check if predicted_data is None or empty
+
+    if predicted_data is None or predicted_data.empty:
+
+        st.error(f"No predicted data available for {company_name}.")
+
+        return
+
+
+    # Create the figure and add the main company's predicted stock price
+
+    fig = px.line(predicted_data, x=predicted_data.index, y='Predicted Year Close', labels={'Predicted Year Close': 'Predicted Stock Price'},
+
+                  title=f"{company_name} Predicted Stock Price" if not enable_comparison else f"{company_name} vs {compare_company_name} Predicted Stock Price Comparison")
+
+
+    fig.add_scatter(x=predicted_data.index, y=predicted_data['Predicted Year Close'], mode='lines', name=f'{company_name} Predicted Price')
+
+
+    # Only add comparison company's predicted stock price if comparison is enabled
+
+    if enable_comparison:
+
+        if compare_predicted_data is None or compare_predicted_data.empty:
+
+            st.error(f"No predicted data available for {compare_company_name}.")
+
+            return
+
+        fig.add_scatter(x=compare_predicted_data.index, y=compare_predicted_data['Predicted Year Close'], mode='lines', name=f'{compare_company_name} Predicted Price')
+
+
+    # Update layout
+
+    fig.update_layout(
+
+        xaxis_title="Year",
+
+        yaxis_title="Stock Price",
+
+        legend_title="Company"
+
+    )
+
+
+    st.plotly_chart(fig)
+
+
+
+with st.spinner("Fetching stock data..."):
 
     stock_data = get_stock_data(selected_ticker, [years])
 
-    if not stock_data.empty:
+    if stock_data is not None and not stock_data.empty:
+
+        st.write(f"{selected_company} Stock Data:")
 
         st.write(stock_data)
 
+        
 
-        st.subheader(f"52 Week High {'with Moving Average' if show_moving_average else ''} for {selected_company}")
+        if enable_comparison:
 
-        plot_stock_data(stock_data, selected_company, "Stock Data", show_moving_average)
+            compare_stock_data = get_stock_data(compare_ticker, [years])
 
+            if compare_stock_data is not None and not compare_stock_data.empty:
 
-        mlr_data = stock_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']].copy()
+                st.write(f"{compare_company} Stock Data:")
 
-        mlr_data.dropna(inplace=True)
+                st.write(compare_stock_data)
 
-        X = mlr_data[['52 Week High', 'Year Close', 'P/E Ratio', 'Market Capacity']]
+                plot_stock_data(stock_data, compare_stock_data, selected_company, compare_company,
 
-        y = mlr_data['Year Close']
+                            f"{selected_company} vs {compare_company} 52 Week High Comparison", show_moving_average, enable_comparison)
 
-        mlr_model = LinearRegression()
+            else:
 
-        mlr_model.fit(X, y)
+                st.warning(f"No data available for {compare_company}.")
 
-        mean_price_change = mlr_data['Year Close'].pct_change().mean()
+        else:
 
+            plot_stock_data(stock_data, stock_data, selected_company, selected_company, f"{selected_company} 52 Week High", show_moving_average)
 
-        future_stock_prices = predict_stock_prices(stock_data, selected_company, years_prediction)
+            
 
+        predicted_data = predict_stock_prices(stock_data, selected_company, years_prediction)
 
-        st.subheader(f"Predicted Year Close for the Next {years_prediction} Years")
+        if enable_comparison:
 
-        fig_pred = px.line(future_stock_prices, x=future_stock_prices.index, y='Predicted Year Close',
+            if compare_stock_data is not None and not compare_stock_data.empty:
 
-                           labels={'Predicted Year Close': 'Predicted Stock Price'})
+                compare_predicted_data = predict_stock_prices(compare_stock_data, compare_company, years_prediction)
 
+                if compare_predicted_data is not None and not compare_predicted_data.empty:
 
-        fig_pred.update_layout(
+                    plot_predicted_stock_prices(stock_data, compare_stock_data, predicted_data, compare_predicted_data, selected_company, compare_company, years_prediction, enable_comparison)
 
-            title=f"Predicted Year Close Over Time for {selected_company} (ARIMA)",
+                else:
 
-            xaxis_title="Year",
+                    st.warning(f"No prediction data available for {compare_company}.")
 
-            yaxis_title="Predicted Stock Price",
+            else:
 
-            legend_title="Indicators",
+                st.warning(f"No data available for {compare_company} to make predictions.")
 
-        )
+        else:
 
+            plot_predicted_stock_prices(stock_data, stock_data, predicted_data, predicted_data, selected_company, selected_company, years_prediction)
 
-        st.plotly_chart(fig_pred)
+            
 
+    else:
 
+        st.warning(f"No data available for {selected_company}.")
 
-if __name__ == "__main__":
-
-    main()
