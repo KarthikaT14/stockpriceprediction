@@ -5,21 +5,19 @@ from fuzzywuzzy import process
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVR
-from alpha_vantage.timeseries import TimeSeries
+from polygon import WebSocketClient, RESTClient
 
-# Set up your Alpha Vantage API key
-API_KEY =  "7RJVZM8UO65L03BO"
-ts = TimeSeries(key=API_KEY, output_format='pandas')
+# Set up your Polygon.io API key
+API_KEY = "l7Xb0mnfPjGykCISGxzwYm1SiriXbq8p"
+client = RESTClient(API_KEY)
 
 st.title("Stock Price Analyzer")
 
 st.write("This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices")
 
-
 # Load the Excel sheet with company data
 company_data = pd.read_excel("tickers.xlsx")
 company_names = company_data["Name"].tolist()
-
 
 # Default company and ticker
 default_company = "Tesla"
@@ -27,7 +25,6 @@ default_ticker = "TSLA"
 
 st.sidebar.header("Enter a Company Name")
 company_input = st.sidebar.text_input("Type to search for a company", value=default_company)
-
 
 # Find the best matches for the company name input dynamically
 if company_input:
@@ -44,7 +41,6 @@ else:
     selected_company = default_company
     selected_ticker = default_ticker
 
-
 # Sidebar selection box for company name
 selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0 if company_input else -1)
 
@@ -60,7 +56,6 @@ years_prediction = st.sidebar.slider("Select Number of years to predict", min_va
 # Comparison checkbox
 enable_comparison = st.sidebar.checkbox("Compare with Another Company")
 
-
 # Second company for comparison if checkbox is enabled
 if enable_comparison:
     st.sidebar.header("Compare with Another Company")
@@ -75,8 +70,7 @@ if enable_comparison:
         compare_company = "Microsoft"
         compare_ticker = "MSFT"
 
-
-# Function to fetch stock data using Alpha Vantage
+# Function to fetch stock data using Polygon.io
 def get_stock_data(ticker_symbol, year_list):
     try:
         end = pd.to_datetime('today').strftime("%Y-%m-%d")
@@ -85,9 +79,12 @@ def get_stock_data(ticker_symbol, year_list):
         for year in year_list:
             start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
 
-            # Fetch the historical data from Alpha Vantage
+            # Fetch historical data from Polygon.io
             try:
-                data, meta_data = ts.get_daily_adjusted(symbol=ticker_symbol, outputsize='full')
+                data = client.stocks_equities_aggregates(ticker_symbol, 1, "day", start, end)
+                data = pd.DataFrame(data['results'])
+                data['t'] = pd.to_datetime(data['t'], unit='ms')  # Convert timestamps to datetime
+                data.set_index('t', inplace=True)
                 data = data.loc[start:end]  # Filter data based on the date range
                 data_frames.append(data)
             except Exception as e:
@@ -97,10 +94,10 @@ def get_stock_data(ticker_symbol, year_list):
         # Combine the data for the years
         yearly_data = pd.concat(data_frames)
         yearly_data.index = pd.to_datetime(yearly_data.index)
-        yearly_data = yearly_data.resample('Y').agg({"2. high": "max", "3. low": "min", "1. open": "first", "4. close": "last"})
+        yearly_data = yearly_data.resample('Y').agg({"h": "max", "l": "min", "o": "first", "c": "last"})
         yearly_data.index = yearly_data.index.year.astype(str)
 
-        # Add P/E ratio and Market Cap (You can fetch P/E and market cap from the company's fundamental data)
+        # Add P/E ratio and Market Cap (You can fetch P/E and market cap from other sources or Polygon.io)
         pe_ratios = []
         market_caps = []
 
@@ -112,23 +109,24 @@ def get_stock_data(ticker_symbol, year_list):
         yearly_data["P/E Ratio"] = pe_ratios
         yearly_data["Market Capacity"] = market_caps
         yearly_data.index.names = ["Year"]
-        yearly_data.rename(columns={"2. high": "52 Week High", "3. low": "52 Week Low", "1. open": "Year Open", "4. close": "Year Close"}, inplace=True)
+        yearly_data.rename(columns={"h": "52 Week High", "l": "52 Week Low", "o": "Year Open", "c": "Year Close"}, inplace=True)
 
         return yearly_data
 
     except KeyError as e:
         st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
 
-
 def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
     try:
-        stock_info = ts.get_company_overview(symbol=ticker_symbol)
-        eps = stock_info.get('EPS', 'N/A')
-        shares_outstanding = stock_info.get('Shares Outstanding', 'N/A')
+        # Fetch company information using Polygon.io (or use other APIs for fundamental data)
+        # Example: Fetching current stock price and shares outstanding
+        stock_info = client.get_ticker(ticker_symbol)
+        eps = stock_info.get('eps', 'N/A')
+        shares_outstanding = stock_info.get('sharesOutstanding', 'N/A')
 
         # Fetch closing price from the historical data
-        data, _ = ts.get_daily_adjusted(symbol=ticker_symbol, outputsize='full')
-        close_price = data['4. close'].mean()
+        data = client.stocks_equities_aggregates(ticker_symbol, 1, "day", "2023-01-01", "2023-12-31")
+        close_price = np.mean([x['c'] for x in data['results']])
 
         if eps != 'N/A' and close_price > 0:
             pe_ratio = close_price / float(eps)
@@ -141,9 +139,7 @@ def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
     except Exception as e:
         st.error(f"Error: {e}. There was an issue retrieving data for {ticker_symbol}.")
 
-
 # Rest of your functions for plotting and predictions (similar to the ones you've already defined)
-
 
 # Fetch and plot stock data
 with st.spinner("Fetching stock data..."):
