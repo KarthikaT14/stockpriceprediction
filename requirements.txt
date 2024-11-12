@@ -6,4 +6,4 @@ fuzzywuzzy
 openpyxl
 python-Levenshtein
 fsspec
-alpha_vantage
+polygon-api-client
