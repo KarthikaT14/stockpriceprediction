@@ -8,7 +8,7 @@ from sklearn.svm import SVR
 from polygon import WebSocketClient, RESTClient
 
 # Set up your Polygon API key
-API_KEY = "YOUR_POLYGON_API_KEY"
+API_KEY = "l7Xb0mnfPjGykCISGxzwYm1SiriXbq8p"
 client = RESTClient(API_KEY)
 
 st.title("Stock Price Analyzer")
