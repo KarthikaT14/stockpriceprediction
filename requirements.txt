@@ -6,4 +6,5 @@ fuzzywuzzy
 openpyxl
 python-Levenshtein
 fsspec
-polygon-api-client
+polygon-api-client==1.0.0
+
