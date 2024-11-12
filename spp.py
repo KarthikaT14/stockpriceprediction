@@ -22,7 +22,7 @@ st.write("This tool is developed to analyze stock data, generate plots using tec
 
 # Load the Excel sheet
 
-company_data = pd.read_excel("C:/Users/KARTHIKA/Downloads/tickers.xlsx")
+company_data = pd.read_excel("tickers.xlsx")
 
 company_names = company_data["Name"].tolist()
 
