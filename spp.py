@@ -17,8 +17,8 @@ company_data = pd.read_excel("tickers.xlsx")
 company_names = company_data["Name"].tolist()
 
 # Default company and ticker
-default_company = "Tesla"
-default_ticker = "TSLA"
+default_company = "Amazon.com, Inc."
+default_ticker = "AMZN"
 
 st.sidebar.header("Enter a Company Name")
 company_input = st.sidebar.text_input("Type to search for a company", value=default_company)
@@ -39,8 +39,7 @@ selected_company = st.sidebar.selectbox("Select a Company Name", suggested_compa
 # Years of historical data slider
 years = st.sidebar.slider("Select Number of years of Historical Data", min_value=1, max_value=10, value=5)
 
-# Sidebar options for 52 Week High graph
-st.sidebar.subheader(f"52 Week High Graph for {selected_company}")
+
 show_moving_average = st.sidebar.checkbox("50 Moving Average", value=True)
 years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
 
@@ -74,7 +73,7 @@ def get_stock_data(ticker_symbol, years):
                 df.columns = df.columns.get_level_values(0)
 
             # Check if essential columns exist, if not skip this year
-            if not {'Close', 'High', 'Low', 'Open'}.issubset(df.columns):
+            if not {'Open', 'Close', 'High', 'Low' }.issubset(df.columns):
                 st.warning(f"Data for year {start} to {end} is incomplete or unavailable for {ticker_symbol}. Skipping.")
                 continue
 
@@ -86,12 +85,22 @@ def get_stock_data(ticker_symbol, years):
             yearly_data.index = pd.to_datetime(yearly_data.index)
 
             # Aggregate by yearly average
-            yearly_data = yearly_data.resample('Y').mean()
+            yearly_data = yearly_data.resample('YE').agg({"Open": "first", "Close": "last","High": "max", "Low": "min"})
             yearly_data.index = yearly_data.index.year.astype(str)
+            pe_ratios = []
+            market_caps = []
+            for year in yearly_data.index:
+                pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
+                pe_ratios.append(pe_ratio)
+                market_caps.append(market_cap)
+               
+            yearly_data["P/E Ratio"] = pe_ratios
+            yearly_data["Market Capacity"] = market_caps
             yearly_data.rename(columns={
                 "High": "52 Week High", "Low": "52 Week Low",
-                "Open": "Year Open", "Close": "Year Close"
+                "Open": "Year Open", "Close": "Year Close", "Date":"Year",
             }, inplace=True)
+
             return yearly_data
 
         else:
@@ -124,7 +133,7 @@ def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
 
 
 # Plotting function for stock data
-def plot_stock_data(data, compare_data, company_name, compare_company_name, title, show_moving_average=True, enable_comparison=False):
+def plot_stock_data(data, compare_data, company_name, compare_company_name,title, show_moving_average=True, enable_comparison=False):
     fig = px.line(data, x=data.index, y='52 Week High', title=title)
     fig.add_scatter(x=data.index, y=data['52 Week High'], mode='lines', name=f'{company_name} 52 Week High')
 
@@ -183,13 +192,13 @@ def predict_stock_prices(data, company_name, years_prediction):
         return pd.DataFrame()
 
 
-# Plotting function for predicted prices
 def plot_predicted_stock_prices(stock_data, predicted_data, company_name, years_prediction, enable_comparison=False, compare_predicted_data=None, compare_company_name=""):
     if predicted_data.empty:
         st.error(f"No predicted data available for {company_name}.")
         return
 
-    fig = px.line(predicted_data, x=predicted_data.index, y='Predicted Year Close', title=f"{company_name} Predicted Stock Price")
+    fig = px.line(predicted_data, x=predicted_data.index, y='Predicted Year Close', labels={'Predicted Year Close': 'Predicted Stock Price'},
+                  title=f"{company_name} Predicted Stock Price" if not enable_comparison else f"{company_name} vs {compare_company_name} Predicted Stock Price Comparison")
     fig.add_scatter(x=predicted_data.index, y=predicted_data['Predicted Year Close'], mode='lines', name=f'{company_name} Predicted Price')
 
     if enable_comparison and compare_predicted_data is not None and not compare_predicted_data.empty:
@@ -197,29 +206,61 @@ def plot_predicted_stock_prices(stock_data, predicted_data, company_name, years_
 
     st.plotly_chart(fig)
 
+    # Update layout
+    fig.update_layout(
+        xaxis_title="Year",
+        yaxis_title="Stock Price",
+        legend_title="Company"
+    )
+def convert_df_to_csv(df):
+    csv = df.to_csv(index=False)
+    return csv
+
+def add_predictions_to_data(stock_data, predictions, prediction_years):
+    prediction_dates = pd.date_range(start=stock_data.index[-1], periods=prediction_years, freq='A')
+    prediction_df = pd.DataFrame({"Predicted Close": predictions}, index=prediction_dates)
+    combined_data = pd.concat([stock_data, prediction_df], axis=1)
+    return combined_data
+
+
+def generate_dummy_predictions(stock_data, years_prediction):
+    last_close = stock_data["Year Close"].iloc[-1]
+    return [last_close + i * 10 for i in range(1, years_prediction + 1)]
 
 with st.spinner("Fetching stock data..."):
     stock_data = get_stock_data(selected_ticker, years)
     if not stock_data.empty:
+        predictions = generate_dummy_predictions(stock_data, years_prediction)
+        combined_data = add_predictions_to_data(stock_data, predictions, years_prediction)
         st.write(f"{selected_company} Stock Data:")
         st.write(stock_data)
-
+        csv = convert_df_to_csv(combined_data)
+       
+        st.download_button(label=f"Download {selected_company} Stock Data as CSV",data=csv,file_name=f"{selected_company}_stock_data.csv",mime="text/csv",)
         if enable_comparison:
             compare_stock_data = get_stock_data(compare_ticker, years)
             if not compare_stock_data.empty:
+                compare_predictions = generate_dummy_predictions(compare_stock_data, years_prediction)
+                compare_combined_data = add_predictions_to_data(compare_stock_data, compare_predictions, years_prediction)
                 st.write(f"{compare_company} Stock Data:")
                 st.write(compare_stock_data)
+                compare_csv = convert_df_to_csv(compare_stock_data)
+                st.download_button(label=f"Download {compare_company} Stock Data as CSV",data=compare_csv,file_name=f"{compare_company}_stock_data.csv",mime="text/csv",)
         else:
             compare_stock_data = None
+        if enable_comparison:
+            graph_title = f"{selected_company} vs {compare_company} 52 Week High Graph"
+        else:
+            graph_title = f"{selected_company} 52 Week High Graph"
 
-        plot_stock_data(stock_data, compare_stock_data, selected_company, compare_company if enable_comparison else "", f"{selected_company} Stock Analysis", show_moving_average, enable_comparison)
+        plot_stock_data(stock_data, compare_stock_data, selected_company, compare_company if enable_comparison else "",graph_title, show_moving_average, enable_comparison)
 
         predicted_data = predict_stock_prices(stock_data, selected_company, years_prediction)
         if enable_comparison and compare_stock_data is not None:
             compare_predicted_data = predict_stock_prices(compare_stock_data, compare_company, years_prediction)
         else:
             compare_predicted_data = pd.DataFrame()
-
+       
         plot_predicted_stock_prices(stock_data, predicted_data, selected_company, years_prediction, enable_comparison, compare_predicted_data, compare_company if enable_comparison else "")
     else:
         st.error(f"No data available for {selected_company}.")
