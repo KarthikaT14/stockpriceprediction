@@ -1,21 +1,19 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 import plotly.express as px
 from fuzzywuzzy import process
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVR
-import intrinio_sdk
-from intrinio_sdk.rest import ApiException
+import warnings
 
-# Set up Intrinio API key
-intrinio_sdk.ApiClient().configuration.api_key['api_key'] = "OjA2MDhjYTFmNGZhMTViYzFiMjkxM2Q0ZWU5MjVkYjY0"
-securities_api = intrinio_sdk.SecurityApi()
-
+warnings.filterwarnings("ignore", category=FutureWarning)
 st.title("Stock Price Analyzer")
-st.write("This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices")
+st.write(
+    "This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices")
 
-# Load Excel sheet with company data
+# Load the Excel sheet
 company_data = pd.read_excel("tickers.xlsx")
 company_names = company_data["Name"].tolist()
 
@@ -26,111 +24,212 @@ default_ticker = "TSLA"
 st.sidebar.header("Enter a Company Name")
 company_input = st.sidebar.text_input("Type to search for a company", value=default_company)
 
-# Find the best matches for the company name input
+# Find the best matches for the company name input dynamically
 if company_input:
     best_matches = process.extractBests(company_input, company_names, score_cutoff=70, limit=5)
-    suggested_companies = [match[0] for match in best_matches]
-    if suggested_companies:
-        selected_company = suggested_companies[0]
-        selected_ticker = company_data.loc[company_data["Name"] == selected_company, "Ticker"].values[0]
-    else:
-        selected_company = default_company
-        selected_ticker = default_ticker
+    suggested_companies = [match[0] for match in best_matches] if best_matches else [default_company]
+    selected_company = suggested_companies[0]
+    selected_ticker = company_data.loc[company_data["Name"] == selected_company, "Ticker"].values[0]
 else:
     selected_company = default_company
     selected_ticker = default_ticker
 
+# Sidebar selection box for company name
 selected_company = st.sidebar.selectbox("Select a Company Name", suggested_companies, index=0 if company_input else -1)
 
-# Historical data years slider
+# Years of historical data slider
 years = st.sidebar.slider("Select Number of years of Historical Data", min_value=1, max_value=10, value=5)
 
 # Sidebar options for 52 Week High graph
 st.sidebar.subheader(f"52 Week High Graph for {selected_company}")
 show_moving_average = st.sidebar.checkbox("50 Moving Average", value=True)
-
 years_prediction = st.sidebar.slider("Select Number of years to predict", min_value=2, max_value=10, value=5)
 
 # Comparison checkbox
 enable_comparison = st.sidebar.checkbox("Compare with Another Company")
 
-# Function to fetch stock data using Intrinio API
+# Second company for comparison if checkbox is enabled
+if enable_comparison:
+    st.sidebar.header("Compare with Another Company")
+    compare_company_input = st.sidebar.text_input("Type to search for another company", value="Microsoft")
+    compare_best_matches = process.extractBests(compare_company_input, company_names, score_cutoff=70, limit=5)
+    compare_suggested_companies = [match[0] for match in compare_best_matches] if compare_best_matches else [
+        "Microsoft"]
+    compare_company = compare_suggested_companies[0]
+    compare_ticker = company_data.loc[company_data["Name"] == compare_company, "Ticker"].values[0]
+
+
+# Helper function to get stock data for a list of years
 def get_stock_data(ticker_symbol, years):
     try:
-        end_date = pd.to_datetime("today").strftime("%Y-%m-%d")
-        start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y-%m-%d")
-        
-        # Fetch historical stock prices
-        stock_data = []
-        try:
-            response = securities_api.get_security_stock_prices(ticker_symbol, start_date=start_date, end_date=end_date, frequency='daily')
-            for stock_price in response.stock_prices:
-                stock_data.append({
-                    "date": stock_price.date,
-                    "open": stock_price.open,
-                    "high": stock_price.high,
-                    "low": stock_price.low,
-                    "close": stock_price.close,
-                    "volume": stock_price.volume
-                })
-            data = pd.DataFrame(stock_data)
-            data.set_index("date", inplace=True)
-            return data
-        except ApiException as e:
-            st.error(f"Error fetching data for {ticker_symbol}: {e}")
+        # Define the end date as today's date
+        end = pd.to_datetime('today').strftime("%Y-%m-%d")
+        data_frames = []
+
+        # Download data for each year
+        for year in range(1, years + 1):
+            start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
+            df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+
+            # Flatten MultiIndex columns if present
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            # Check if essential columns exist, if not skip this year
+            if not {'Close', 'High', 'Low', 'Open'}.issubset(df.columns):
+                st.warning(
+                    f"Data for year {start} to {end} is incomplete or unavailable for {ticker_symbol}. Skipping.")
+                continue
+
+            data_frames.append(df)
+
+        # Combine all years' data
+        if data_frames:
+            yearly_data = pd.concat(data_frames)
+            yearly_data.index = pd.to_datetime(yearly_data.index)
+
+            # Aggregate by yearly average
+            yearly_data = yearly_data.resample('Y').mean()
+            yearly_data.index = yearly_data.index.year.astype(str)
+            yearly_data.rename(columns={
+                "High": "52 Week High", "Low": "52 Week Low",
+                "Open": "Year Open", "Close": "Year Close"
+            }, inplace=True)
+            return yearly_data
+
+        else:
+            st.error(f"No data available for {ticker_symbol} over the specified period.")
             return pd.DataFrame()
-    except KeyError as e:
-        st.error(f"Error: {e}. The symbol '{ticker_symbol}' was not found. Please check the symbol and try again.")
 
-# Function to prepare data for predictions
-def prepare_data_for_prediction(data, years_prediction):
-    data = data[['close']].copy()
-    data['Date'] = pd.to_datetime(data.index)
-    data.set_index('Date', inplace=True)
-    
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data[['close']])
+    except Exception as e:
+        st.error(f"Error downloading data for {ticker_symbol}: {e}")
+        return pd.DataFrame()
 
-    X = np.array(range(len(scaled_data))).reshape(-1, 1)
-    y = scaled_data
+# Helper function to calculate P/E ratio and market cap
+def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
+    try:
+        stock_info = yf.Ticker(ticker_symbol)
+        info = stock_info.history(start=f"{year}-01-01", end=f"{year}-12-31")
 
-    svr = SVR(kernel='rbf')
-    svr.fit(X, y)
+        if not info.empty:
+            close_price = info['Close'].mean()
+            eps = stock_info.info.get('trailingEps', None)
+            shares_outstanding = stock_info.info.get('sharesOutstanding', None)
+            market_cap = close_price * shares_outstanding if shares_outstanding else np.nan
+            pe_ratio = close_price / eps if eps and close_price else np.nan
+        else:
+            pe_ratio, market_cap = np.nan, np.nan
 
-    future_days = np.array(range(len(scaled_data), len(scaled_data) + years_prediction * 252)).reshape(-1, 1)
-    predicted_stock_price = svr.predict(future_days)
+        return pe_ratio, market_cap
+    except Exception as e:
+        st.error(f"Error: {e}.")
+        return np.nan, np.nan
 
-    predicted_stock_price = scaler.inverse_transform(predicted_stock_price.reshape(-1, 1))
 
-    predicted_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=years_prediction * 252, freq='B')
-    prediction_df = pd.DataFrame(data=predicted_stock_price, index=predicted_dates, columns=['Predicted Close'])
-    return prediction_df
+# Plotting function for stock data
+def plot_stock_data(data, compare_data, company_name, compare_company_name, title, show_moving_average=True,
+                    enable_comparison=False):
+    fig = px.line(data, x=data.index, y='52 Week High', title=title)
+    fig.add_scatter(x=data.index, y=data['52 Week High'], mode='lines', name=f'{company_name} 52 Week High')
 
-# Function to plot stock data and predictions
-def plot_stock_data(data, title, show_moving_average=False):
-    fig = px.line(data, x=data.index, y='close', title=title)
+    if enable_comparison and compare_data is not None and not compare_data.empty:
+        fig.add_scatter(x=compare_data.index, y=compare_data['52 Week High'], mode='lines',
+                        name=f'{compare_company_name} 52 Week High')
+
     if show_moving_average:
-        data['MA50'] = data['close'].rolling(window=50).mean()
-        fig.add_scatter(x=data.index, y=data['MA50'], mode='lines', name='50-day MA')
+        sma_50 = data['Year Close'].rolling(window=50, min_periods=1).mean()
+        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{company_name} 50-Day Moving Avg',
+                        line=dict(dash='dash'))
+
+        if enable_comparison:
+            compare_sma_50 = compare_data['Year Close'].rolling(window=50, min_periods=1).mean()
+            fig.add_scatter(x=compare_data.index, y=compare_sma_50, mode='lines',
+                            name=f'{compare_company_name} 50-Day Moving Avg', line=dict(dash='dash'))
+
     st.plotly_chart(fig)
 
-def plot_predicted_stock_prices(data, predicted_data, company_name, years_prediction):
-    fig = px.line(data, x=data.index, y='close', title=f"{company_name} Stock Price Prediction")
-    fig.add_scatter(x=predicted_data.index, y=predicted_data['Predicted Close'], mode='lines', name=f"{years_prediction} Year Prediction")
+
+# Prediction function for stock prices
+def predict_stock_prices(data, company_name, years_prediction):
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index)
+
+    closing_prices = data['Year Close'].values.reshape(-1, 1)
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(closing_prices)
+
+    time_step = min(60, len(scaled_data) // 2)
+    if len(scaled_data) < time_step:
+        st.warning(f"Not enough data for {company_name} to perform predictions.")
+        return pd.DataFrame()
+
+    X_train, y_train = [], []
+    for i in range(time_step, len(scaled_data)):
+        X_train.append(scaled_data[i - time_step:i, 0])
+        y_train.append(scaled_data[i, 0])
+
+    X_train, y_train = np.array(X_train), np.array(y_train)
+
+    model = SVR(kernel='rbf', C=100, gamma=0.1, epsilon=0.1)
+    model.fit(X_train, y_train)
+
+    predictions = []
+    last_sequence = X_train[-1]
+    for _ in range(years_prediction):
+        prediction = model.predict(last_sequence.reshape(1, -1))
+        predictions.append(prediction[0])
+        last_sequence = np.append(last_sequence[1:], prediction, axis=0)
+
+    if predictions:
+        future_data = pd.DataFrame(
+            index=pd.date_range(start=f"{pd.to_datetime('today').year + 1}-01-01", periods=years_prediction, freq='Y'),
+            columns=['Predicted Year Close'])
+        future_data['Predicted Year Close'] = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+        return future_data
+    else:
+        return pd.DataFrame()
+
+
+# Plotting function for predicted prices
+def plot_predicted_stock_prices(stock_data, compare_stock_data, predicted_data, compare_predicted_data, company_name,
+                                compare_company_name, years_prediction, enable_comparison=False):
+    if predicted_data.empty:
+        st.error(f"No predicted data available for {company_name}.")
+        return
+
+    fig = px.line(predicted_data, x=predicted_data.index, y='Predicted Year Close',
+                  title=f"{company_name} Predicted Stock Price")
+    fig.add_scatter(x=predicted_data.index, y=predicted_data['Predicted Year Close'], mode='lines',
+                    name=f'{company_name} Predicted Price')
+
+    if enable_comparison and not compare_predicted_data.empty:
+        fig.add_scatter(x=compare_predicted_data.index, y=compare_predicted_data['Predicted Year Close'], mode='lines',
+                        name=f'{compare_company_name} Predicted Price')
+
     st.plotly_chart(fig)
 
-# Fetch and plot stock data
+
 with st.spinner("Fetching stock data..."):
     stock_data = get_stock_data(selected_ticker, years)
-    if stock_data is not None and not stock_data.empty:
+    if not stock_data.empty:
         st.write(f"{selected_company} Stock Data:")
         st.write(stock_data)
 
-        # Plot the stock data with options
-        plot_stock_data(stock_data, f"{selected_company} 52 Week High", show_moving_average)
+        if enable_comparison:
+            compare_stock_data = get_stock_data(compare_ticker, years)
+            if not compare_stock_data.empty:
+                st.write(f"{compare_company} Stock Data:")
+                st.write(compare_stock_data)
 
-        # Predict stock prices
-        predicted_data = prepare_data_for_prediction(stock_data, years_prediction)
-        plot_predicted_stock_prices(stock_data, predicted_data, selected_company, years_prediction)
+        plot_stock_data(stock_data, compare_stock_data if enable_comparison else None, selected_company,
+                        compare_company, f"{selected_company} Stock Analysis", show_moving_average, enable_comparison)
+
+        predicted_data = predict_stock_prices(stock_data, selected_company, years_prediction)
+        compare_predicted_data = predict_stock_prices(compare_stock_data, compare_company,
+                                                      years_prediction) if enable_comparison else pd.DataFrame()
+
+        plot_predicted_stock_prices(stock_data, compare_stock_data if enable_comparison else None, predicted_data,
+                                    compare_predicted_data if enable_comparison else None, selected_company,
+                                    compare_company, years_prediction, enable_comparison)
     else:
-        st.warning(f"No data available for {selected_company}.")
+        st.error(f"No data available for {selected_company}.")
