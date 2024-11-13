@@ -10,8 +10,7 @@ import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 st.title("Stock Price Analyzer")
-st.write(
-    "This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices")
+st.write("This tool is developed to analyze stock data, generate plots using technical indicators, and predict stock prices")
 
 # Load the Excel sheet
 company_data = pd.read_excel("tickers.xlsx")
@@ -53,8 +52,7 @@ if enable_comparison:
     st.sidebar.header("Compare with Another Company")
     compare_company_input = st.sidebar.text_input("Type to search for another company", value="Microsoft")
     compare_best_matches = process.extractBests(compare_company_input, company_names, score_cutoff=70, limit=5)
-    compare_suggested_companies = [match[0] for match in compare_best_matches] if compare_best_matches else [
-        "Microsoft"]
+    compare_suggested_companies = [match[0] for match in compare_best_matches] if compare_best_matches else ["Microsoft"]
     compare_company = compare_suggested_companies[0]
     compare_ticker = company_data.loc[company_data["Name"] == compare_company, "Ticker"].values[0]
 
@@ -77,8 +75,7 @@ def get_stock_data(ticker_symbol, years):
 
             # Check if essential columns exist, if not skip this year
             if not {'Close', 'High', 'Low', 'Open'}.issubset(df.columns):
-                st.warning(
-                    f"Data for year {start} to {end} is incomplete or unavailable for {ticker_symbol}. Skipping.")
+                st.warning(f"Data for year {start} to {end} is incomplete or unavailable for {ticker_symbol}. Skipping.")
                 continue
 
             data_frames.append(df)
@@ -127,24 +124,20 @@ def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
 
 
 # Plotting function for stock data
-def plot_stock_data(data, compare_data, company_name, compare_company_name, title, show_moving_average=True,
-                    enable_comparison=False):
+def plot_stock_data(data, compare_data, company_name, compare_company_name, title, show_moving_average=True, enable_comparison=False):
     fig = px.line(data, x=data.index, y='52 Week High', title=title)
     fig.add_scatter(x=data.index, y=data['52 Week High'], mode='lines', name=f'{company_name} 52 Week High')
 
     if enable_comparison and compare_data is not None and not compare_data.empty:
-        fig.add_scatter(x=compare_data.index, y=compare_data['52 Week High'], mode='lines',
-                        name=f'{compare_company_name} 52 Week High')
+        fig.add_scatter(x=compare_data.index, y=compare_data['52 Week High'], mode='lines', name=f'{compare_company_name} 52 Week High')
 
     if show_moving_average:
         sma_50 = data['Year Close'].rolling(window=50, min_periods=1).mean()
-        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{company_name} 50-Day Moving Avg',
-                        line=dict(dash='dash'))
+        fig.add_scatter(x=data.index, y=sma_50, mode='lines', name=f'{company_name} 50-Day Moving Avg', line=dict(dash='dash'))
 
-        if enable_comparison:
+        if enable_comparison and compare_data is not None:
             compare_sma_50 = compare_data['Year Close'].rolling(window=50, min_periods=1).mean()
-            fig.add_scatter(x=compare_data.index, y=compare_sma_50, mode='lines',
-                            name=f'{compare_company_name} 50-Day Moving Avg', line=dict(dash='dash'))
+            fig.add_scatter(x=compare_data.index, y=compare_sma_50, mode='lines', name=f'{compare_company_name} 50-Day Moving Avg', line=dict(dash='dash'))
 
     st.plotly_chart(fig)
 
@@ -191,20 +184,16 @@ def predict_stock_prices(data, company_name, years_prediction):
 
 
 # Plotting function for predicted prices
-def plot_predicted_stock_prices(stock_data, compare_stock_data, predicted_data, compare_predicted_data, company_name,
-                                compare_company_name, years_prediction, enable_comparison=False):
+def plot_predicted_stock_prices(stock_data, predicted_data, company_name, years_prediction, enable_comparison=False, compare_predicted_data=None, compare_company_name=""):
     if predicted_data.empty:
         st.error(f"No predicted data available for {company_name}.")
         return
 
-    fig = px.line(predicted_data, x=predicted_data.index, y='Predicted Year Close',
-                  title=f"{company_name} Predicted Stock Price")
-    fig.add_scatter(x=predicted_data.index, y=predicted_data['Predicted Year Close'], mode='lines',
-                    name=f'{company_name} Predicted Price')
+    fig = px.line(predicted_data, x=predicted_data.index, y='Predicted Year Close', title=f"{company_name} Predicted Stock Price")
+    fig.add_scatter(x=predicted_data.index, y=predicted_data['Predicted Year Close'], mode='lines', name=f'{company_name} Predicted Price')
 
-    if enable_comparison and not compare_predicted_data.empty:
-        fig.add_scatter(x=compare_predicted_data.index, y=compare_predicted_data['Predicted Year Close'], mode='lines',
-                        name=f'{compare_company_name} Predicted Price')
+    if enable_comparison and compare_predicted_data is not None and not compare_predicted_data.empty:
+        fig.add_scatter(x=compare_predicted_data.index, y=compare_predicted_data['Predicted Year Close'], mode='lines', name=f'{compare_company_name} Predicted Price')
 
     st.plotly_chart(fig)
 
@@ -220,16 +209,17 @@ with st.spinner("Fetching stock data..."):
             if not compare_stock_data.empty:
                 st.write(f"{compare_company} Stock Data:")
                 st.write(compare_stock_data)
+        else:
+            compare_stock_data = None
 
-        plot_stock_data(stock_data, compare_stock_data if enable_comparison else None, selected_company,
-                        compare_company, f"{selected_company} Stock Analysis", show_moving_average, enable_comparison)
+        plot_stock_data(stock_data, compare_stock_data, selected_company, compare_company if enable_comparison else "", f"{selected_company} Stock Analysis", show_moving_average, enable_comparison)
 
         predicted_data = predict_stock_prices(stock_data, selected_company, years_prediction)
-        compare_predicted_data = predict_stock_prices(compare_stock_data, compare_company,
-                                                      years_prediction) if enable_comparison else pd.DataFrame()
+        if enable_comparison and compare_stock_data is not None:
+            compare_predicted_data = predict_stock_prices(compare_stock_data, compare_company, years_prediction)
+        else:
+            compare_predicted_data = pd.DataFrame()
 
-        plot_predicted_stock_prices(stock_data, compare_stock_data if enable_comparison else None, predicted_data,
-                                    compare_predicted_data if enable_comparison else None, selected_company,
-                                    compare_company, years_prediction, enable_comparison)
+        plot_predicted_stock_prices(stock_data, predicted_data, selected_company, years_prediction, enable_comparison, compare_predicted_data, compare_company if enable_comparison else "")
     else:
         st.error(f"No data available for {selected_company}.")
