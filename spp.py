@@ -59,62 +59,62 @@ if enable_comparison:
 # Helper function to get stock data for a list of years
 def get_stock_data(ticker_symbol, years):
     try:
-    end = pd.to_datetime('today')
-    start = end - pd.DateOffset(years=years)
-    
-    ```
-        df = yf.download(
-            ticker_symbol,
-            start=start.strftime("%Y-%m-%d"),
-            end=end.strftime("%Y-%m-%d"),
-            progress=False
-        )
-    
-        if df.empty:
-            st.error(f"No data available for {ticker_symbol}.")
-            return pd.DataFrame()
-    
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-    
-        if not {'Open', 'Close', 'High', 'Low'}.issubset(df.columns):
-            st.error(f"Required stock data not available for {ticker_symbol}.")
-            return pd.DataFrame()
-    
-        yearly_data = df.resample('YE').agg({
-            "Open": "first",
-            "Close": "last",
-            "High": "max",
-            "Low": "min"
-        })
-    
-        yearly_data.index = yearly_data.index.year.astype(str)
-    
-        pe_ratios = []
-        market_caps = []
-    
-        for year in yearly_data.index:
-            pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(
+        end = pd.to_datetime('today')
+        start = end - pd.DateOffset(years=years)
+        
+        ```
+            df = yf.download(
                 ticker_symbol,
-                int(year)
+                start=start.strftime("%Y-%m-%d"),
+                end=end.strftime("%Y-%m-%d"),
+                progress=False
             )
-            pe_ratios.append(pe_ratio)
-            market_caps.append(market_cap)
-    
-        yearly_data["P/E Ratio"] = pe_ratios
-        yearly_data["Market Capacity"] = market_caps
-    
-        yearly_data.rename(columns={
-            "High": "52 Week High",
-            "Low": "52 Week Low",
-            "Open": "Year Open",
-            "Close": "Year Close"
-        }, inplace=True)
-    
-        return yearly_data
-    
-    except Exception as e:
-        st.error(f"Error downloading data for {ticker_symbol}: {e}")
+        
+            if df.empty:
+                st.error(f"No data available for {ticker_symbol}.")
+                return pd.DataFrame()
+        
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+        
+            if not {'Open', 'Close', 'High', 'Low'}.issubset(df.columns):
+                st.error(f"Required stock data not available for {ticker_symbol}.")
+                return pd.DataFrame()
+        
+            yearly_data = df.resample('YE').agg({
+                "Open": "first",
+                "Close": "last",
+                "High": "max",
+                "Low": "min"
+            })
+        
+            yearly_data.index = yearly_data.index.year.astype(str)
+        
+            pe_ratios = []
+            market_caps = []
+        
+            for year in yearly_data.index:
+                pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(
+                    ticker_symbol,
+                    int(year)
+                )
+                pe_ratios.append(pe_ratio)
+                market_caps.append(market_cap)
+        
+            yearly_data["P/E Ratio"] = pe_ratios
+            yearly_data["Market Capacity"] = market_caps
+        
+            yearly_data.rename(columns={
+                "High": "52 Week High",
+                "Low": "52 Week Low",
+                "Open": "Year Open",
+                "Close": "Year Close"
+            }, inplace=True)
+        
+            return yearly_data
+        
+        except Exception as e:
+            st.error(f"Error downloading data for {ticker_symbol}: {e}")
         return pd.DataFrame()
     ```
     
