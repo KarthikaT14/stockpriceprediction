@@ -116,10 +116,7 @@ def get_stock_data(ticker_symbol, years):
         except Exception as e:
             st.error(f"Error downloading data for {ticker_symbol}: {e}")
         return pd.DataFrame()
-    ```
     
-    ```
-    ```
 
 
 # Helper function to calculate P/E ratio and market cap
