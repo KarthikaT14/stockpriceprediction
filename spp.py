@@ -119,6 +119,7 @@ except Exception as e:
 ```
 
 
+
 # Helper function to calculate P/E ratio and market cap
 def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
     try:
