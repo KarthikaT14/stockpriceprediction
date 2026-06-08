@@ -63,16 +63,16 @@ def get_stock_data(ticker_symbol, years):
         start = end - pd.DateOffset(years=years)
         
     
-            df = yf.download(
-                ticker_symbol,
-                start=start.strftime("%Y-%m-%d"),
-                end=end.strftime("%Y-%m-%d"),
-                progress=False
-            )
+        df = yf.download(
+            ticker_symbol,
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            progress=False
+        )
         
-            if df.empty:
-                st.error(f"No data available for {ticker_symbol}.")
-                return pd.DataFrame()
+        if df.empty:
+           st.error(f"No data available for {ticker_symbol}.")
+          return pd.DataFrame()
         
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
