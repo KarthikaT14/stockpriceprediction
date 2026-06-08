@@ -58,58 +58,69 @@ if enable_comparison:
 
 # Helper function to get stock data for a list of years
 def get_stock_data(ticker_symbol, years):
-    try:
-        # Define the end date as today's date
-        end = pd.to_datetime('today').strftime("%Y-%m-%d")
-        data_frames = []
+try:
+end = pd.to_datetime('today')
+start = end - pd.DateOffset(years=years)
 
-        # Download data for each year
-        for year in range(1, years + 1):
-            start = (pd.to_datetime('today') - pd.DateOffset(years=year)).strftime("%Y-%m-%d")
-            df = yf.download(ticker_symbol, start=start, end=end, progress=False)
+```
+    df = yf.download(
+        ticker_symbol,
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+        progress=False
+    )
 
-            # Flatten MultiIndex columns if present
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-
-            # Check if essential columns exist, if not skip this year
-            if not {'Open', 'Close', 'High', 'Low' }.issubset(df.columns):
-                st.warning(f"Data for year {start} to {end} is incomplete or unavailable for {ticker_symbol}. Skipping.")
-                continue
-
-            data_frames.append(df)
-
-        # Combine all years' data
-        if data_frames:
-            yearly_data = pd.concat(data_frames)
-            yearly_data.index = pd.to_datetime(yearly_data.index)
-
-            # Aggregate by yearly average
-            yearly_data = yearly_data.resample('YE').agg({"Open": "first", "Close": "last","High": "max", "Low": "min"})
-            yearly_data.index = yearly_data.index.year.astype(str)
-            pe_ratios = []
-            market_caps = []
-            for year in yearly_data.index:
-                pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(ticker_symbol, int(year))
-                pe_ratios.append(pe_ratio)
-                market_caps.append(market_cap)
-               
-            yearly_data["P/E Ratio"] = pe_ratios
-            yearly_data["Market Capacity"] = market_caps
-            yearly_data.rename(columns={
-                "High": "52 Week High", "Low": "52 Week Low",
-                "Open": "Year Open", "Close": "Year Close", "Date":"Year",
-            }, inplace=True)
-
-            return yearly_data
-
-        else:
-            st.error(f"No data available for {ticker_symbol} over the specified period.")
-            return pd.DataFrame()
-
-    except Exception as e:
-        st.error(f"Error downloading data for {ticker_symbol}: {e}")
+    if df.empty:
+        st.error(f"No data available for {ticker_symbol}.")
         return pd.DataFrame()
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    if not {'Open', 'Close', 'High', 'Low'}.issubset(df.columns):
+        st.error(f"Required stock data not available for {ticker_symbol}.")
+        return pd.DataFrame()
+
+    yearly_data = df.resample('YE').agg({
+        "Open": "first",
+        "Close": "last",
+        "High": "max",
+        "Low": "min"
+    })
+
+    yearly_data.index = yearly_data.index.year.astype(str)
+
+    pe_ratios = []
+    market_caps = []
+
+    for year in yearly_data.index:
+        pe_ratio, market_cap = calculate_pe_ratio_and_market_cap(
+            ticker_symbol,
+            int(year)
+        )
+        pe_ratios.append(pe_ratio)
+        market_caps.append(market_cap)
+
+    yearly_data["P/E Ratio"] = pe_ratios
+    yearly_data["Market Capacity"] = market_caps
+
+    yearly_data.rename(columns={
+        "High": "52 Week High",
+        "Low": "52 Week Low",
+        "Open": "Year Open",
+        "Close": "Year Close"
+    }, inplace=True)
+
+    return yearly_data
+
+except Exception as e:
+    st.error(f"Error downloading data for {ticker_symbol}: {e}")
+    return pd.DataFrame()
+```
+
+```
+```
+
 
 # Helper function to calculate P/E ratio and market cap
 def calculate_pe_ratio_and_market_cap(ticker_symbol, year):
@@ -184,8 +195,13 @@ def predict_stock_prices(data, company_name, years_prediction):
 
     if predictions:
         future_data = pd.DataFrame(
-            index=pd.date_range(start=f"{pd.to_datetime('today').year + 1}-01-01", periods=years_prediction, freq='Y'),
-            columns=['Predicted Year Close'])
+    index=pd.date_range(
+        start=f"{pd.Timestamp.today().year + 1}-01-01",
+        periods=years_prediction,
+        freq='YE'
+    ),
+    columns=['Predicted Year Close']
+)
         future_data['Predicted Year Close'] = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
         return future_data
     else:
@@ -217,9 +233,20 @@ def convert_df_to_csv(df):
     return csv
 
 def add_predictions_to_data(stock_data, predictions, prediction_years):
-    prediction_dates = pd.date_range(start=stock_data.index[-1], periods=prediction_years, freq='A')
-    prediction_df = pd.DataFrame({"Predicted Close": predictions}, index=prediction_dates)
+
+    prediction_dates = pd.date_range(
+        start=pd.Timestamp.today() + pd.DateOffset(years=1),
+        periods=prediction_years,
+        freq='YE'
+    )
+
+    prediction_df = pd.DataFrame(
+        {"Predicted Close": predictions},
+        index=prediction_dates
+    )
+
     combined_data = pd.concat([stock_data, prediction_df], axis=1)
+
     return combined_data
 
 
