@@ -62,7 +62,7 @@ def get_stock_data(ticker_symbol, years):
         end = pd.to_datetime('today')
         start = end - pd.DateOffset(years=years)
         
-        ```
+    
             df = yf.download(
                 ticker_symbol,
                 start=start.strftime("%Y-%m-%d"),
